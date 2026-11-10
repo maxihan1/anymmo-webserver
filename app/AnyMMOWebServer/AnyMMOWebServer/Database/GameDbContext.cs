@@ -35,6 +35,15 @@ namespace AnyMMOWebServer.Database
             modelBuilder.Entity<ItemFlowLog>().HasIndex(f => f.At);
             modelBuilder.Entity<ItemFlowLog>().HasIndex(f => f.PlayerCharacterId);
             modelBuilder.Entity<Operator>().Property(o => o.UserName).HasMaxLength(64);
+
+            // MySQL 은 시간대를 저장하지 않는다 — 운영 표의 시각은 늘 UTC 로 쓰고 읽어 JSON 에 Z 가 붙게 한다
+            var utc = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime, DateTime>(
+                v => v.Kind == DateTimeKind.Utc ? v : v.ToUniversalTime(), v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+            foreach (var entity in modelBuilder.Model.GetEntityTypes().Where(t => t.ClrType.Namespace == typeof(Operator).Namespace)) {
+                foreach (var p in entity.GetProperties().Where(p => p.ClrType == typeof(DateTime) || p.ClrType == typeof(DateTime?))) {
+                    p.SetValueConverter(utc);
+                }
+            }
         }
     }
 }

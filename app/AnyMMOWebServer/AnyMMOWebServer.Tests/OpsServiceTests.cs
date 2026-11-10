@@ -66,6 +66,7 @@ namespace AnyMMOWebServer.Tests
             Assert.Equal("Warrior", hero.CharacterClass);
             Assert.Equal(2, hero.Items["Potion"]);
             Assert.Null(users.Characters("Alt").Single().Level);
+            Assert.Equal("Alt", users.Characters("11").Single().Name);
         }
 
         [Fact]
@@ -170,6 +171,16 @@ namespace AnyMMOWebServer.Tests
             Assert.Contains("지금", json);
             Assert.DoesNotContain("꺼짐", json);
             Assert.DoesNotContain("나중", json);
+        }
+
+        [Fact]
+        public void Ops_times_come_back_as_utc()
+        {
+            var n = new NoticeService(db, audit).Save("op", null, new NoticeInput("t", "b", new DateTime(2026, 11, 10, 9, 0, 0, DateTimeKind.Unspecified), null, true));
+            db.ChangeTracker.Clear();
+            var back = db.Notices.Single(x => x.Id == n.Id);
+            Assert.Equal(DateTimeKind.Utc, back.StartsAt.Kind);
+            Assert.Equal(DateTimeKind.Utc, back.CreatedAt.Kind);
         }
 
         [Fact]

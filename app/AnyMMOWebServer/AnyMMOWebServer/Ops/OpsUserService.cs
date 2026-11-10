@@ -63,7 +63,8 @@ namespace AnyMMOWebServer.Ops
         public List<CharacterRow> Characters(string q)
         {
             q = q.Trim();
-            var list = db.PlayerCharacters.Where(c => q == string.Empty || c.Name.Contains(q)).OrderBy(c => c.Name).Take(50).ToList();
+            int id = int.TryParse(q, out var n) ? n : -1;
+            var list = db.PlayerCharacters.Where(c => q == string.Empty || c.Id == id || c.Name.Contains(q)).OrderBy(c => c.Name).Take(50).ToList();
             return list.Select(Summarize).ToList();
         }
 
