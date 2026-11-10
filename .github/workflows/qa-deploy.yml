@@ -1,4 +1,4 @@
-# main 에 병합되면 테스트 → 이미지를 굽고 시연 서버에 올린 뒤 Test Commander · Issue Bunker 에 배포 신호를 보낸다
+# main 에 병합되면 테스트 → 이미지를 빌드하고 시연 서버에 올린 뒤 Test Commander · Issue Bunker 에 배포 신호를 보낸다
 name: QA 배포
 on:
   push:
@@ -40,7 +40,7 @@ jobs:
           cache-to: type=gha,mode=max
   deploy:
     needs: build
-    # 서버 배포 키(DEPLOY_HOST · DEPLOY_SSH_KEY)를 넣기 전에는 이미지만 굽는다
+    # 서버 배포 키(DEPLOY_HOST · DEPLOY_SSH_KEY)를 넣기 전에는 이미지만 빌드한다
     if: vars.DEPLOY_HOST != ''
     runs-on: ubuntu-latest
     env:
