@@ -1,5 +1,6 @@
 using AnyMMOWebServer.Database;
 using AnyMMOWebServer.Models;
+using AnyMMOWebServer.Ops;
 using AnyMMOWebServer.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -34,6 +35,17 @@ builder.Configuration.Bind("AnyMMOWebServerSettings", settings);
 //}
 builder.Services.AddSingleton(settings);
 
+// ops: 운영자 API 설정 · 서비스. 운영자 토큰 키는 게임 키와 달라야 한다
+var opsSettings = new OpsSettings();
+builder.Configuration.Bind("AnyMMOOpsSettings", opsSettings);
+OpsAuth.CheckKeys(settings.BearerKey, opsSettings.OperatorBearerKey);
+builder.Services.AddSingleton(opsSettings);
+builder.Services.AddScoped<AuditService>();
+builder.Services.AddScoped<OpsAuthService>();
+builder.Services.AddScoped<OpsUserService>();
+builder.Services.AddScoped<GrantService>();
+builder.Services.AddScoped<NoticeService>();
+
 // configure logging - console for local, lambda logger for production
 if (builder.Environment.IsProduction()) {
     builder.Logging.ClearProviders();
@@ -65,7 +77,8 @@ if (builder.Environment.IsProduction()) {
 }
 
 // setup controllers
-builder.Services.AddControllersWithViews();
+// ops: 빈 문자열을 받는 칸(우편 본문 등)이 「필수」로 막히지 않게 한다
+builder.Services.AddControllersWithViews(o => o.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true);
 
 // make authentication service available to dependency injection
 builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
@@ -120,11 +133,27 @@ builder.Services.AddAuthentication()
                         return Task.CompletedTask;
                     }
                 };
+            })
+            .AddJwtBearer(OpsAuth.Scheme, options => {
+                // 게임 토큰과 같은 까닭으로 검증기를 JwtSecurityTokenHandler 로 맞춘다(IdentityModel 판이 섞여 있다)
+                options.TokenHandlers.Clear();
+                options.TokenHandlers.Add(new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler());
+                options.RequireHttpsMetadata = false;
+                options.TokenValidationParameters = OpsAuth.Validation(opsSettings.OperatorBearerKey);
             });
 
 builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
+
+// ops: 켤 때 마이그레이션을 적용하고 첫 운영자 계정을 만든다(테스트의 메모리 DB 는 건너뜀)
+using (var scope = app.Services.CreateScope()) {
+    var db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
+    if (db.Database.IsRelational()) {
+        db.Database.Migrate();
+    }
+    scope.ServiceProvider.GetRequiredService<OpsAuthService>().EnsureSeed();
+}
 
 app.Use((context, next) => {
     var forwardedFor = context.Request.Headers["X-Forwarded-For"].ToString();
@@ -155,3 +184,6 @@ app.MapControllerRoute(
     pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.Run();
+
+// ops: 통합 테스트(WebApplicationFactory)가 진입점을 찾게 한다
+public partial class Program { }

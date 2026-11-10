@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using NuGet.Protocol;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using AnyMMOWebServer.Ops;
 
 namespace AnyMMOWebServer.Controllers
 {
@@ -28,6 +29,9 @@ namespace AnyMMOWebServer.Controllers
         private readonly AnyMMOWebServer.Services.IAuthenticationService authenticationService;
         private readonly AnyMMOWebServerSettings anyMMOWebServerSettings;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly OpsUserService opsUserService;
+        private readonly NoticeService noticeService;
+        private readonly GrantService grantService;
 
 
         public ApiController(
@@ -35,8 +39,14 @@ namespace AnyMMOWebServer.Controllers
             GameDbContext dbContext,
             AnyMMOWebServerSettings anyMMOWebServerSettings,
             AnyMMOWebServer.Services.IAuthenticationService authenticationService,
-            IHttpContextAccessor httpContextAccessor)
+            IHttpContextAccessor httpContextAccessor,
+            OpsUserService opsUserService,
+            NoticeService noticeService,
+            GrantService grantService)
         {
+            this.opsUserService = opsUserService;
+            this.noticeService = noticeService;
+            this.grantService = grantService;
             this.dbContext = dbContext;
             this._httpContextAccessor = httpContextAccessor;
             this.anyMMOWebServerSettings = anyMMOWebServerSettings;
@@ -60,6 +70,15 @@ namespace AnyMMOWebServer.Controllers
                 if (!success)
                 {
                     return Unauthorized(content);
+                }
+                // ops: 비밀번호가 맞은 뒤에만 정지 · 점검을 알려 준다(틀린 비밀번호로 계정 상태를 떠보지 못하게)
+                var suspend = opsUserService.RestrictionsOf(content!.AccountId).Suspend;
+                if (suspend != null) {
+                    return StatusCode(403, new { code = "SUSPENDED", message = suspend.Reason, until = suspend.EndsAt });
+                }
+                if (noticeService.BlockedByMaintenance(content.AccountId)) {
+                    var m = noticeService.Maintenance();
+                    return StatusCode(503, new { code = "MAINTENANCE", message = m.Message, until = m.EndsAt });
                 }
                 return Ok(content);
             } catch (Exception e)
@@ -519,6 +538,7 @@ namespace AnyMMOWebServer.Controllers
                     return Unauthorized("invalid shared secret");
                 }
 
+                grantService.OnMailSaving(saveMailMessageRequest.Id, saveMailMessageRequest.SaveData);
                 var success = mailMessageService.SaveMailMessage(saveMailMessageRequest);
                 if (!success) {
                     return BadRequest();
@@ -539,6 +559,7 @@ namespace AnyMMOWebServer.Controllers
                     return Unauthorized("invalid shared secret");
                 }
 
+                grantService.OnMailDeleting(deleteMailMessageRequest.Id);
                 var success = mailMessageService.DeleteMailMessage(deleteMailMessageRequest);
                 if (!success) {
                     return BadRequest("Delete mail message failed.  Message not found.");

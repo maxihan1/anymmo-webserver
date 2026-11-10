@@ -73,3 +73,47 @@ Run both the webserver and the nginx containers at the same time
 or as a daemon
 
 `docker-compose up -d`
+# Operator API (ops tool)
+
+Added in this fork for a game operations tool (`maxihan1/anyrpg-ops`). Operators are stored in their own table and sign in with their own JWT key, so a game token cannot call `/opsapi` and an operator token cannot call `/api`.
+
+## Settings
+
+| Key | Meaning |
+|---|---|
+| `AnyMMOOpsSettings__OperatorBearerKey` | Signing key for operator tokens. 32+ characters, must differ from `AnyMMOWebServerSettings__BearerKey` (the server refuses to start otherwise) |
+| `AnyMMOOpsSettings__SeedOperatorUserName` / `__SeedOperatorPassword` | Creates this operator at startup if it does not exist |
+| `AnyMMOOpsSettings__BaseCurrencyName` | Currency name used for mailed currency (default `Gold`) — must match the game's `DefaultCurrencyGroup.BaseCurrency` |
+
+Migrations are applied automatically at startup.
+
+## Endpoints (`/opsapi`, operator bearer token)
+
+| Method | Path | What |
+|---|---|---|
+| POST | `/opsapi/login` | `{userName, password}` → `{token, operator}` |
+| GET | `/opsapi/summary` | counts for the dashboard |
+| GET | `/opsapi/users?q=&page=&size=` · `/opsapi/users/{id}` | account search (name, email, id, character name) · detail with characters and sanction history |
+| POST | `/opsapi/users/{id}/sanctions` · `/opsapi/sanctions/{id}/release` | `SUSPEND` (login blocked) · `CHAT_MUTE` (read by the game server) · release with reason |
+| GET | `/opsapi/characters?q=` | character search with level / class / items parsed from save data |
+| GET · POST | `/opsapi/grants` · `/opsapi/grants/{id}/recall` | mail items / currency to characters · recall unclaimed attachments |
+| GET | `/opsapi/items/known` | item names seen in item instances (hint list) |
+| GET · POST · PUT · DELETE | `/opsapi/notices[/{id}]` | notices |
+| GET · PUT | `/opsapi/maintenance` | maintenance switch, message, window, allowed account ids |
+| GET | `/opsapi/logs/audit` · `/opsapi/logs/items` | operator actions · item flow (granted / taken / recalled) |
+
+Errors are `{code, message}` with an HTTP status.
+
+## Endpoints for the game
+
+| Method | Path | Auth | What |
+|---|---|---|---|
+| GET | `/api/serverstatus` | none | maintenance state and notices showing now |
+| POST | `/api/getaccountrestrictions` | server token | `{accountId}` → suspension, chat mute, maintenance block |
+| POST | `/api/login` | — | now returns `403 {code:"SUSPENDED"}` or `503 {code:"MAINTENANCE"}` after a correct password |
+
+Note for the game server: mailed items are new rows in `ItemInstances` (generator id 1023 in the IdGen layout). A game server that loaded all item instances at startup must load missing ones before `TakeAttachment`, otherwise the attachment is skipped.
+
+## Tests
+
+`dotnet test app/AnyMMOWebServer/AnyMMOWebServer.Tests` (xUnit, EF Core in-memory, `WebApplicationFactory`).
