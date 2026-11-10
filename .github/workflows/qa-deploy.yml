@@ -1,0 +1,67 @@
+# main 에 병합되면 테스트 → 이미지를 굽고 시연 서버에 올린 뒤 Test Commander · Issue Bunker 에 배포 신호를 보낸다
+name: QA 배포
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: qa-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.no.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: 테스트
+        run: dotnet test app/AnyMMOWebServer/AnyMMOWebServer.Tests
+      - id: no
+        run: echo "build=${GITHUB_SHA::7}-$(TZ=Asia/Seoul date +%Y%m%d%H%M)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/maxihan1/anymmo-webserver:${{ steps.no.outputs.build }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+  deploy:
+    needs: build
+    # 서버 배포 키(DEPLOY_HOST · DEPLOY_SSH_KEY)를 넣기 전에는 이미지만 굽는다
+    if: vars.DEPLOY_HOST != ''
+    runs-on: ubuntu-latest
+    env:
+      BUILD: ${{ needs.build.outputs.build }}
+    steps:
+      - name: 서버 반영
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id && chmod 600 ~/.ssh/id
+          printf '%s\n' "$HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' "$TOKEN" | ssh -i ~/.ssh/id -o IdentitiesOnly=yes root@${{ vars.DEPLOY_HOST }} "anyrpg-api $BUILD"
+      - name: 배포 신호
+        env:
+          QAHUB_DEPLOY_TOKEN: ${{ secrets.QAHUB_DEPLOY_TOKEN }}
+          BTS_DEPLOY_WEBHOOK: ${{ secrets.BTS_DEPLOY_WEBHOOK }}
+        run: |
+          BODY=$(jq -cn --arg b "$BUILD" '{build:$b, services:["ARI"]}')
+          # ponytail: 롤백(rollback · rollbackKeys)은 안 싣는다 — 되돌림 배포를 시연하게 되면 데모마켓 deploy/signal.ts 처럼 커밋 사이 이슈 키를 뽑는다
+          if [ -n "$BTS_DEPLOY_WEBHOOK" ]; then curl --fail-with-body -sS -o /dev/null -X POST -H 'Content-Type: application/json' -d "$BODY" "$BTS_DEPLOY_WEBHOOK"; fi
+          if [ -n "$QAHUB_DEPLOY_TOKEN" ]; then curl --fail-with-body -sS -X POST -H "Authorization: Bearer $QAHUB_DEPLOY_TOKEN" -H 'Content-Type: application/json' -d "$BODY" "https://commander.maxihan.com/api/projects/16/deploys"; fi
