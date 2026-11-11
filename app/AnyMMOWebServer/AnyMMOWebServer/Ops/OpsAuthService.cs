@@ -20,6 +20,10 @@ namespace AnyMMOWebServer.Ops
         public string BaseCurrencyName { get; set; } = "Gold";
         public string CurrencyItemName { get; set; } = "System Currency Loot Item";
         public string MailSender { get; set; } = "운영팀";
+        // 자동 테스트용 고정 운영 키(X-Admin-Key) — 운영자 토큰은 12시간이면 만료돼 밤새 도는 정기 실행이 깨진다. 비어 있으면 꺼진다
+        public string AdminKey { get; set; } = string.Empty;
+        // 고정 키로 들어온 요청이 기록에 남는 운영자 이름
+        public string AdminKeyOperatorName { get; set; } = "qa-admin-key";
     }
 
     public static class OpsAuth
@@ -28,6 +32,20 @@ namespace AnyMMOWebServer.Ops
         public const string Issuer = "anymmo-ops";
         public const string ClaimOperatorId = "operatorId";
         public const string ClaimOperatorName = "operatorName";
+        public const string AdminKeyHeader = "X-Admin-Key";
+
+        // 고정 운영 키가 맞으면 그 이름의 운영자로 들인다(길이가 달라도 시간이 새지 않게 비교)
+        public static ClaimsPrincipal? AdminKeyPrincipal(string? presented, OpsSettings settings)
+        {
+            if (string.IsNullOrEmpty(settings.AdminKey) || string.IsNullOrEmpty(presented)) return null;
+            var a = SHA256.HashData(Encoding.UTF8.GetBytes(presented));
+            var b = SHA256.HashData(Encoding.UTF8.GetBytes(settings.AdminKey));
+            if (!CryptographicOperations.FixedTimeEquals(a, b)) return null;
+            return new ClaimsPrincipal(new ClaimsIdentity(new[] {
+                new Claim(ClaimOperatorId, "0"),
+                new Claim(ClaimOperatorName, settings.AdminKeyOperatorName),
+            }, Scheme));
+        }
 
         public static TokenValidationParameters Validation(string key) => new TokenValidationParameters {
             ValidateIssuer = true,
@@ -40,8 +58,11 @@ namespace AnyMMOWebServer.Ops
             ClockSkew = TimeSpan.FromMinutes(1),
         };
 
-        public static void CheckKeys(string gameKey, string operatorKey)
+        public static void CheckKeys(string gameKey, string operatorKey, string adminKey = "")
         {
+            if (adminKey.Length > 0 && adminKey.Length < 32) {
+                throw new InvalidOperationException("AnyMMOOpsSettings:AdminKey must be empty or at least 32 characters.");
+            }
             if (operatorKey.Length < 32) {
                 throw new InvalidOperationException("AnyMMOOpsSettings:OperatorBearerKey must be at least 32 characters.");
             }
