@@ -38,7 +38,7 @@ builder.Services.AddSingleton(settings);
 // ops: 운영자 API 설정 · 서비스. 운영자 토큰 키는 게임 키와 달라야 한다
 var opsSettings = new OpsSettings();
 builder.Configuration.Bind("AnyMMOOpsSettings", opsSettings);
-OpsAuth.CheckKeys(settings.BearerKey, opsSettings.OperatorBearerKey);
+OpsAuth.CheckKeys(settings.BearerKey, opsSettings.OperatorBearerKey, opsSettings.AdminKey);
 builder.Services.AddSingleton(opsSettings);
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<OpsAuthService>();
@@ -140,6 +140,16 @@ builder.Services.AddAuthentication()
                 options.TokenHandlers.Add(new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler());
                 options.RequireHttpsMetadata = false;
                 options.TokenValidationParameters = OpsAuth.Validation(opsSettings.OperatorBearerKey);
+                options.Events = new JwtBearerEvents {
+                    OnMessageReceived = context => {
+                        var admin = OpsAuth.AdminKeyPrincipal(context.Request.Headers[OpsAuth.AdminKeyHeader].ToString(), opsSettings);
+                        if (admin != null) {
+                            context.Principal = admin;
+                            context.Success();
+                        }
+                        return Task.CompletedTask;
+                    }
+                };
             });
 
 builder.Services.AddHttpContextAccessor();

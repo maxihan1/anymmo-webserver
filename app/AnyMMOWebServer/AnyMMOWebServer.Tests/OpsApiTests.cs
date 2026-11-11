@@ -21,6 +21,7 @@ namespace AnyMMOWebServer.Tests
         {
             public const string OpUser = "opadmin";
             public const string OpPassword = "op-password-1";
+            public const string AdminKey = "admin-key-for-tests-0123456789abcdef";
             private readonly string dbName = Guid.NewGuid().ToString();
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -31,6 +32,7 @@ namespace AnyMMOWebServer.Tests
                 builder.UseSetting("AnyMMOOpsSettings:OperatorBearerKey", "operator-bearer-key-for-tests-0123456789");
                 builder.UseSetting("AnyMMOOpsSettings:SeedOperatorUserName", OpUser);
                 builder.UseSetting("AnyMMOOpsSettings:SeedOperatorPassword", OpPassword);
+                builder.UseSetting("AnyMMOOpsSettings:AdminKey", AdminKey);
                 builder.ConfigureServices(services => {
                     var old = services.Single(d => d.ServiceType == typeof(DbContextOptions<GameDbContext>));
                     services.Remove(old);
@@ -208,6 +210,23 @@ namespace AnyMMOWebServer.Tests
             var badRes = await c.SendAsync(bad);
             Assert.Equal(HttpStatusCode.BadRequest, badRes.StatusCode);
             Assert.Equal("INVALID", (await badRes.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+        }
+
+        [Fact]
+        public async Task Fixed_admin_key_header_opens_ops_api_without_login()
+        {
+            var c = factory.CreateClient();
+            var withKey = new HttpRequestMessage(HttpMethod.Get, "/opsapi/users");
+            withKey.Headers.Add("X-Admin-Key", Factory.AdminKey);
+            Assert.Equal(HttpStatusCode.OK, (await c.SendAsync(withKey)).StatusCode);
+
+            var wrongKey = new HttpRequestMessage(HttpMethod.Get, "/opsapi/users");
+            wrongKey.Headers.Add("X-Admin-Key", Factory.AdminKey + "x");
+            Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(wrongKey)).StatusCode);
+
+            var gameApi = new HttpRequestMessage(HttpMethod.Post, "/api/getallplayercharacters");
+            gameApi.Headers.Add("X-Admin-Key", Factory.AdminKey);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(gameApi)).StatusCode);
         }
     }
 }
